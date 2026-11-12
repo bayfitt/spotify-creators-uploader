@@ -19,7 +19,8 @@ from spotify_uploader.images import is_sixteen_by_nine, read_image_info
 #: ``(fraction 0..1, human detail)``; a plain callable so any progress UI can plug in.
 ProgressCallback = Callable[[float, str], None]
 
-SUPPORTED_SUFFIXES = (".mp4", ".mov", ".mp3", ".m4a", ".wav")
+AUDIO_SUFFIXES = (".mp3", ".m4a", ".wav")
+SUPPORTED_SUFFIXES = (".mp4", ".mov", *AUDIO_SUFFIXES)
 MAX_TITLE_CHARS = 200
 MAX_DESCRIPTION_CHARS = 4000
 #: A local sanity floor, not a Spotify rule: a 16:9 image this small looks broken.
@@ -43,6 +44,11 @@ class EpisodeRequest:
     explicit: bool = False
     thumbnail_path: Path | None = None
 
+    @property
+    def is_audio(self) -> bool:
+        """Audio episodes use square episode art, rather than a video thumbnail."""
+        return self.video_path.suffix.lower() in AUDIO_SUFFIXES
+
     def validate(self) -> None:
         """Reject a bad request before any browser work, so it never burns an upload."""
         if not self.video_path.is_file():
@@ -59,10 +65,10 @@ class EpisodeRequest:
         if len(self.description) > MAX_DESCRIPTION_CHARS:
             raise ValidationError(f"description is longer than {MAX_DESCRIPTION_CHARS} characters")
         if self.thumbnail_path is not None:
-            self._validate_thumbnail(self.thumbnail_path)
+            self._validate_thumbnail(self.thumbnail_path, audio=self.is_audio)
 
     @staticmethod
-    def _validate_thumbnail(thumbnail: Path) -> None:
+    def _validate_thumbnail(thumbnail: Path, *, audio: bool = False) -> None:
         """Fail on a thumbnail Spotify would silently ignore or reject.
 
         The format is sniffed from magic bytes and the size is measured here so
@@ -73,7 +79,12 @@ class EpisodeRequest:
         if not thumbnail.is_file():
             raise ValidationError(f"thumbnail is not a file: {thumbnail}")
         info = read_image_info(thumbnail)
-        if not is_sixteen_by_nine(info.width, info.height):
+        if audio and info.width != info.height:
+            raise ValidationError(
+                f"episode artwork {thumbnail} is {info.width}x{info.height}; "
+                "use a square image to avoid automatic cropping"
+            )
+        if not audio and not is_sixteen_by_nine(info.width, info.height):
             raise ValidationError(
                 f"thumbnail {thumbnail} is {info.width}x{info.height}; Spotify requires "
                 "a horizontal 16:9 image (1920x1080 suggested)"

@@ -70,6 +70,51 @@ def _thumbnail_file(tmp_path: Path, *, width: int = 1280, height: int = 720) -> 
     return path
 
 
+async def test_audio_artwork_opens_crop_dialog_and_updates_preview(page_factory, tmp_path) -> None:
+    page, _ = await page_factory()
+    await page.set_content(
+        """
+        <div data-encore-id="formGroup">
+          <input id="art" type="file" accept="image/png" style="display:none">
+          <img alt="Episode cover art"
+               src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==">
+        </div>
+        <div role="dialog" hidden><button>Save</button></div>
+        <script>
+          const input = document.querySelector('#art');
+          const dialog = document.querySelector('[role=dialog]');
+          input.addEventListener('change', () => { dialog.hidden = false; });
+          dialog.querySelector('button').addEventListener('click', () => {
+            document.querySelector('img').src = URL.createObjectURL(input.files[0]);
+            dialog.hidden = true;
+          });
+        </script>
+        """
+    )
+    wizard = EpisodeWizard(page, show_id=SHOW_ID, step_timeout_s=5, upload_timeout_s=10)
+    await wizard._set_episode_art(_thumbnail_file(tmp_path, width=600, height=600))
+
+    assert (await page.locator('img[alt="Episode cover art"]').get_attribute("src")).startswith(
+        "blob:"
+    )
+    assert not await page.get_by_role("dialog").is_visible()
+
+
+@pytest.mark.parametrize("source", ["https://cdn.example/audio.mp3", "blob:https://example/123"])
+async def test_only_remote_resumed_audio_is_considered_ready(page_factory, source) -> None:
+    page, _ = await page_factory()
+    await page.set_content("<audio></audio>")
+    await page.locator("audio").evaluate(
+        """(el, source) => Object.defineProperties(el, {
+          currentSrc: {value: source}, readyState: {value: 4},
+          duration: {value: 46}, error: {value: null}
+        })""",
+        source,
+    )
+    wizard = EpisodeWizard(page, show_id=SHOW_ID, step_timeout_s=1, upload_timeout_s=1)
+    assert await wizard._resumed_audio_ready() is source.startswith("https://")
+
+
 async def test_happy_path_publishes_immediately(page_factory, video_file: Path) -> None:
     page, fake = await page_factory()
     result = await _run(page, _request(video_file))
@@ -103,6 +148,16 @@ async def test_dry_run_stops_before_publish(page_factory, video_file: Path) -> N
     types = [event["type"] for event in fake.events]
     assert "publish_now_selected" in types
     assert "published" not in types
+
+
+async def test_missing_published_row_is_not_reported_as_published(page_factory, video_file) -> None:
+    page, fake = await page_factory(FakeBehavior(hide_published_from_listing=True))
+    result = await _run(page, _request(video_file), step_timeout_s=2.0)
+
+    assert len(_published_events(fake)) == 1
+    assert result.episode_id is not None
+    assert result.url is None
+    assert result.processing is True
 
 
 async def test_expired_session_raises_auth_expired(page_factory, video_file: Path) -> None:

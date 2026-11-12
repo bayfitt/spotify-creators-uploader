@@ -1,9 +1,10 @@
 # spotify-creators-uploader
 
-This fork accepts MP3, M4A and WAV audio files in the upload validator. Audio uploads through
-the Spotify wizard have not yet been verified; the rest of the workflow remains video-focused.
+This fork supports MP3, M4A and WAV audio as well as video. On Debian, MP3 audio uploads,
+square episode artwork, and publication were exercised against Spotify for Creators on
+2026-11-11. M4A and WAV have passed local validation but have not been tested live.
 
-Publish one video podcast episode at a time to **Spotify for Creators** from the command line,
+Publish one audio or video podcast episode at a time to **Spotify for Creators** from the command line,
 headlessly, using a saved Playwright session created after a one-time human login. The same code is
 a typed Python library: it fills in the title, description, explicit-content setting and optional
 thumbnail, then publishes immediately — or walks the whole wizard without clicking Publish when you
@@ -111,17 +112,22 @@ spotify-uploader upload video.mp4 \
   --show-id SHOW_ID
 ```
 
-`--description "..."` replaces the file. Add `--explicit` for explicit content, `--thumbnail IMAGE`
-for a custom thumbnail (horizontal 16:9, 1920x1080 suggested, PNG or JPEG), `--dry-run` to walk the
-whole wizard without publishing, and `--resume-draft EPISODE_ID` to reopen an existing draft instead
-of uploading the video again.
+`--description "..."` replaces the file. Add `--explicit` for explicit content and
+`--thumbnail IMAGE` for custom artwork: square episode art for audio, or a horizontal 16:9
+thumbnail for video (PNG or JPEG). Use `--dry-run` to walk the wizard without publishing, and
+`--resume-draft EPISODE_ID` to reopen an existing draft instead of uploading the file again.
 
 `--dry-run` still leaves a draft on Spotify: **every upload creates a draft**, including a dry run
 and any run that fails after the upload. `--dry-run` is never recorded in the local ledger. Related
 flags: `--force` republishes a file whose SHA-256 is already in the ledger, `--headed` shows the
 browser, `--channel chrome` runs the system Chrome, `--debug-dir DIR` saves a screenshot, page HTML
-and trace for a failed step, and `--upload-timeout SECONDS` raises the video-upload limit. Progress
+and trace for a failed step, and `--upload-timeout SECONDS` raises the upload time limit. Progress
 lines go to stderr; the published episode is one JSON object on stdout.
+
+After Publish, the uploader reports `published` only when the matching episode row in
+Spotify for Creators shows Published. An unavailable or unresolved row is reported as
+`processing`, and an episode still marked Draft raises an error. The Creator result is not
+proof that the public episode page or listener playback is available; verify those separately.
 
 ## Doctor
 

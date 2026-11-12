@@ -190,6 +190,19 @@ def test_a_valid_jpeg_thumbnail_is_accepted(tmp_path) -> None:
     _request(tmp_path, thumbnail_path=thumb).validate()
 
 
+def test_audio_episode_accepts_square_cover_art(tmp_path) -> None:
+    audio = _video(tmp_path, "episode.mp3")
+    art = _thumbnail(tmp_path, width=600, height=600)
+    _request(tmp_path, video_path=audio, thumbnail_path=art).validate()
+
+
+def test_audio_episode_rejects_non_square_cover_art(tmp_path) -> None:
+    audio = _video(tmp_path, "episode.mp3")
+    art = _thumbnail(tmp_path, width=1280, height=720)
+    with pytest.raises(ValidationError, match="square image"):
+        _request(tmp_path, video_path=audio, thumbnail_path=art).validate()
+
+
 def test_a_missing_thumbnail_is_rejected(tmp_path) -> None:
     with pytest.raises(ValidationError, match="thumbnail file not found"):
         _request(tmp_path, thumbnail_path=tmp_path / "missing.png").validate()

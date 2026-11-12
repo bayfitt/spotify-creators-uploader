@@ -74,6 +74,7 @@ UPLOAD_PROGRESS_RE = re.compile(r"Uploading \((\d{1,3})%\)")
 
 FILE_INPUT = ("#uploadAreaInput", "input[type=file]")
 UPLOAD_READY = ("text=Preview ready!",)
+AUDIO_ELEMENT = "audio"
 TITLE_INPUT = ("#title-input", "input[name=title]", "role=textbox[name=/title/i]")
 DESCRIPTION_EDITOR = (
     "div[contenteditable='true'][data-slate-editor='true']",
@@ -86,6 +87,12 @@ THUMBNAIL_LIST = ("#thumbnail-list",)
 THUMBNAIL_INPUT = ("#thumbnail-list input[type=file]",)
 THUMBNAIL_DELETE = ("#thumbnail-list button[aria-label='Delete']",)
 THUMBNAIL_SELECTED_IMAGE = ("#thumbnail-list [role=radio][aria-checked='true'] img",)
+#: Audio uses Spotify's square Episode art control and an image crop dialog.
+EPISODE_ART_INPUT = (
+    "[data-encore-id='formGroup']:has(img[alt='Episode cover art']) input[type=file]",
+)
+EPISODE_ART_IMAGE = ("img[alt='Episode cover art']",)
+EPISODE_ART_SAVE = ("[role=dialog] button:has-text('Save')",)
 NEXT_BUTTON = ("role=button[name=/^next$/i]", "button:has-text('Next')")
 #: The label comes first: the radio input itself is visually hidden and flaky to click.
 PUBLISH_NOW_RADIO = ("label[for='publish-date-now']", "#publish-date-now")

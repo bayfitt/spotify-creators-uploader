@@ -149,7 +149,7 @@ class EpisodeWizard:
         publish: bool = True,
         resume_episode_id: str | None = None,
     ) -> WizardResult:
-        """Walk the wizard for one video, publishing immediately unless ``publish`` is False.
+        """Walk the wizard for one episode, publishing unless ``publish`` is False.
 
         With ``resume_episode_id`` the existing draft is reopened instead of uploading
         the video again, which is how a publish that Spotify refused is retried.
@@ -176,7 +176,9 @@ class EpisodeWizard:
                 self._progress(0.10, f"uploading {request.video_path.name}")
             else:
                 self._progress(0.10, f"resuming draft {resume_episode_id}")
-            await self._wait_for_upload()
+            await self._wait_for_upload(
+                resumed_audio=request.is_audio and resume_episode_id is not None
+            )
 
         async with self._step("title"):
             title_input = await first_visible(
@@ -199,9 +201,14 @@ class EpisodeWizard:
         self._progress(0.74, "content setting applied")
 
         if request.thumbnail_path is not None:
-            async with self._step("thumbnail"):
-                await self._set_thumbnail(request.thumbnail_path)
-            self._progress(0.77, "thumbnail set")
+            if request.is_audio:
+                async with self._step("episode-art"):
+                    await self._set_episode_art(request.thumbnail_path)
+                self._progress(0.77, "episode artwork set")
+            else:
+                async with self._step("thumbnail"):
+                    await self._set_thumbnail(request.thumbnail_path)
+                self._progress(0.77, "thumbnail set")
 
         await self._remove_consent_overlays()
         async with self._step("next"):
@@ -284,12 +291,11 @@ class EpisodeWizard:
         except PlaywrightError:
             logger.debug("could not remove cookie-consent overlays", exc_info=True)
 
-    async def _wait_for_upload(self) -> None:
-        """Wait for Spotify's own "Preview ready!" signal.
+    async def _wait_for_upload(self, *, resumed_audio: bool = False) -> None:
+        """Wait for Spotify's preview or a playable, saved audio draft.
 
-        The details form (title, description) appears seconds after the file is
-        chosen, while the video is still uploading and processing, so the form being
-        visible says nothing about whether the video is done.
+        The details form can appear while media is still uploading, so its presence
+        alone does not establish that the upload is complete.
         """
         loop = asyncio.get_running_loop()
         started = loop.time()
@@ -303,7 +309,10 @@ class EpisodeWizard:
             if await self._any_visible(selectors.UPLOAD_ERROR):
                 raise UploadError("Spotify reported that the upload failed", step="upload")
             if await self._any_visible(selectors.UPLOAD_READY):
-                self._progress(0.50, "video ready")
+                self._progress(0.50, "media ready")
+                return
+            if resumed_audio and await self._resumed_audio_ready():
+                self._progress(0.50, "saved audio ready")
                 return
             now = loop.time()
             if now >= deadline:
@@ -314,14 +323,27 @@ class EpisodeWizard:
                 percent = await self._upload_percent()
                 if percent is not None and percent != last_percent:
                     last_percent = percent
-                    self._progress(0.10 + 0.40 * percent / 100, f"uploading video ({percent}%)")
+                    self._progress(0.10 + 0.40 * percent / 100, f"uploading media ({percent}%)")
                 elif percent is None and now - last_wait_note >= 5.0:
                     last_wait_note = now
                     self._progress(
-                        0.50, f"waiting for Spotify to process the video ({now - started:.0f}s)"
+                        0.50, f"waiting for Spotify to process the media ({now - started:.0f}s)"
                     )
                 next_report = now + 0.5
             await asyncio.sleep(_POLL_INTERVAL_S)
+
+    async def _resumed_audio_ready(self) -> bool:
+        """On a reopened draft Spotify omits the preview-ready message for audio.
+
+        Require a remote media source with decoded data and a finite duration, so a
+        local blob preview cannot be mistaken for a completed upload.
+        """
+        return bool(
+            await self._page.locator(selectors.AUDIO_ELEMENT).evaluate_all(
+                "els => els.some(e => e.currentSrc.startsWith('https://') && "
+                "e.readyState >= 2 && Number.isFinite(e.duration) && e.duration > 0 && !e.error)"
+            )
+        )
 
     def _capture_episode_id(self) -> None:
         episode_id = selectors.episode_id_from_url(self._page.url)
@@ -386,6 +408,25 @@ class EpisodeWizard:
                 "the explicit-content switch did not change to the requested state",
                 step="content-check",
             )
+
+    async def _set_episode_art(self, path: Path) -> None:
+        """Select square audio artwork and save Spotify's crop dialog."""
+        image = await first_attached(self._page, selectors.EPISODE_ART_IMAGE, self._step_timeout_s)
+        before = await image.get_attribute("src")
+        upload = await first_attached(self._page, selectors.EPISODE_ART_INPUT, self._step_timeout_s)
+        await upload.set_input_files(str(path))
+        save = await first_visible(self._page, selectors.EPISODE_ART_SAVE, self._step_timeout_s)
+        await save.click()
+
+        deadline = asyncio.get_running_loop().time() + self._step_timeout_s
+        while True:
+            src = await image.get_attribute("src")
+            width = await image.evaluate("img => img.naturalWidth || 0")
+            if src and src != before and width > 0:
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                raise UploadError("Spotify did not accept the episode artwork", step="episode-art")
+            await asyncio.sleep(_POLL_INTERVAL_S)
 
     async def _set_thumbnail(self, path: Path) -> None:
         """Upload a custom thumbnail before Next, because Next is what saves the form.
@@ -524,10 +565,11 @@ class EpisodeWizard:
             await asyncio.sleep(_POLL_INTERVAL_S)
 
     async def _read_outcome(self, title: str) -> tuple[str | None, str | None, bool]:
-        """Read the new episode's link and processing state from the episode list."""
+        """Require the episode row to say Published before reporting publication."""
         self._capture_episode_id()
         url: str | None = None
-        processing = False
+        processing = True
+        observed_draft = False
         try:
             await self._page.goto(
                 selectors.episodes_url(self._show_id), wait_until="domcontentloaded"
@@ -536,16 +578,25 @@ class EpisodeWizard:
             deadline = loop.time() + self._step_timeout_s
             payload = {"title": title, "episodeId": self._episode_id}
             while True:
-                href = await self._page.evaluate(_FIND_EPISODE_LINK_JS, payload)
-                if isinstance(href, str) and href:
-                    url = urljoin(selectors.BASE_URL, href)
-                    break
+                row = await self._page.evaluate(_FIND_EPISODE_LINK_JS, payload)
+                if isinstance(row, dict):
+                    href = row.get("href")
+                    if isinstance(href, str) and href:
+                        url = urljoin(selectors.BASE_URL, href)
+                    state = row.get("state")
+                    observed_draft = state == "draft"
+                    if state == "published":
+                        processing = False
+                        break
+                    if state == "processing":
+                        break
                 if loop.time() >= deadline:
                     break
                 await asyncio.sleep(_POLL_INTERVAL_S)
-            processing = await self._any_visible(selectors.PROCESSING_HINT)
         except PlaywrightError:
             logger.debug("could not read the episode list for the new episode", exc_info=True)
+        if observed_draft:
+            raise UploadError("Spotify still marks the episode as a draft", step="publish")
         if self._episode_id is None and url is not None:
             self._episode_id = selectors.episode_id_from_url(url)
         return self._episode_id, url, processing
@@ -629,16 +680,19 @@ _CLICK_PUBLISH_NOW_JS = """
 _FIND_EPISODE_LINK_JS = """
 ({title, episodeId}) => {
   const anchors = [...document.querySelectorAll("a[href]")];
-  if (episodeId) {
-    for (const anchor of anchors) {
-      const href = anchor.getAttribute("href") || "";
-      if (href.includes("/episode/" + episodeId)) return href;
-    }
-  }
   const wanted = title.trim();
-  for (const anchor of anchors) {
-    if ((anchor.textContent || "").trim().includes(wanted)) return anchor.getAttribute("href");
-  }
-  return null;
+  const matching = anchors.filter(anchor => {
+    const href = anchor.getAttribute("href") || "";
+    return episodeId ? href.includes("/episode/" + episodeId)
+      : (anchor.textContent || "").trim() === wanted;
+  });
+  const anchor = matching.find(a => (a.textContent || "").trim() === wanted) || matching[0];
+  if (!anchor) return null;
+  const row = anchor.closest("tr, [role=row], li") || anchor.parentElement;
+  const text = (row && row.innerText) || "";
+  const state = /\\bdraft\\b/i.test(text) ? "draft"
+    : /\\bpublished\\b/i.test(text) ? "published"
+    : /\\bprocessing\\b/i.test(text) ? "processing" : "unknown";
+  return {href: anchor.getAttribute("href"), state};
 }
 """

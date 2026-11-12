@@ -267,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the argparse tree; exposed so tests and docs can inspect the contract."""
     parser = _ArgumentParser(
         prog="spotify-uploader",
-        description="Publish one video episode to Spotify for Creators.",
+        description="Publish one audio or video episode to Spotify for Creators.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {_version()}")
     parser.add_argument(
@@ -306,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--check", action="store_true", help="only report spec problems; exit 2 if any"
     )
 
-    upload = subparsers.add_parser("upload", help="publish one video episode")
+    upload = subparsers.add_parser("upload", help="publish one audio or video episode")
     upload.add_argument("video", type=Path)
     upload.add_argument("--title", required=True)
     description = upload.add_mutually_exclusive_group(required=True)
@@ -317,7 +317,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--thumbnail",
         metavar="IMAGE",
         default=None,
-        help="custom 16:9 thumbnail (PNG or JPEG) instead of an auto-generated frame",
+        help="square audio episode art or 16:9 video thumbnail (PNG or JPEG)",
     )
     upload.add_argument("--dry-run", action="store_true")
     upload.add_argument("--force", action="store_true")

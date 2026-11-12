@@ -43,6 +43,7 @@ class FakeBehavior:
     existing_titles: tuple[str, ...] = ()
     existing_drafts: tuple[str, ...] = ()
     processing_after_publish: bool = False
+    hide_published_from_listing: bool = False
     reject_publish: bool = False
     setup_required: bool = False
     consent_overlay: bool = True
@@ -221,8 +222,13 @@ def _episodes_page(fake: FakeSpotify, show_id: str) -> str:
         f"{escape(title)}</a> <span>Draft</span></li>"
         for index, title in enumerate(fake.behavior.existing_drafts, start=1)
     )
-    for item in fake.published:
-        status = " <span>Processing</span>" if fake.behavior.processing_after_publish else ""
+    published_items = [] if fake.behavior.hide_published_from_listing else fake.published
+    for item in published_items:
+        status = (
+            " <span>Processing</span>"
+            if fake.behavior.processing_after_publish
+            else " <span>Published</span>"
+        )
         rows.append(
             f"<li><a href='/pod/show/{escape(show_id, quote=True)}"
             f"/episode/{escape(str(item.get('episode_id')), quote=True)}'>"

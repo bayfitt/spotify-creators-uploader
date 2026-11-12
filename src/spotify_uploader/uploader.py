@@ -1,4 +1,4 @@
-"""Public entry point: publish one video episode through a headless browser.
+"""Public entry point: publish one audio or video episode through a headless browser.
 
 The uploader owns everything around the wizard: configuration and session checks,
 SHA-256 based idempotency, the duplicate-title guard, failure artifacts and
@@ -107,7 +107,7 @@ class SpotifyCreatorsUploader:
     ) -> PublishedEpisode:
         """Publish immediately, or rehearse every step without clicking Publish when dry.
 
-        ``resume_episode_id`` reopens an existing draft instead of uploading the video
+        ``resume_episode_id`` reopens an existing draft instead of uploading the media
         again; use it to retry a publish that Spotify refused (the error names the id).
         """
         request.validate()
