@@ -360,18 +360,33 @@ class EpisodeWizard:
 
     async def _fill_description(self, text: str) -> None:
         editor = await first_visible(self._page, selectors.DESCRIPTION_EDITOR, self._step_timeout_s)
-        expected = text.strip()
+        expected = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+        # A newline inside one Slate text node looks correct in the wizard, but
+        # Spotify can remove it when it saves the episode. Insert real paragraph
+        # breaks and verify their structure before allowing the upload to proceed.
+        if "\n" in expected:
+            if await editor.evaluate(_FIBER_INSERT_PARAGRAPHS_JS, expected):
+                await self._page.wait_for_timeout(300)
+                actual = (await editor.evaluate(_PARAGRAPH_TEXT_JS)).strip()
+                if actual == expected:
+                    return
+            raise UploadError(
+                "could not preserve paragraph breaks in the rich-text description editor",
+                step="description",
+            )
+
         select_all = "Meta+A" if sys.platform == "darwin" else "Control+A"
         await self._remove_consent_overlays()
         await editor.click()
         await self._page.keyboard.press(select_all)
-        await self._page.keyboard.insert_text(text)
+        await self._page.keyboard.insert_text(expected)
         await self._page.wait_for_timeout(300)
         if (await editor.inner_text()).strip() == expected:
             return
 
         logger.debug("keyboard input was discarded; trying the Slate fiber fallback")
-        if await editor.evaluate(_FIBER_INSERT_JS, text):
+        if await editor.evaluate(_FIBER_INSERT_JS, expected):
             await self._page.wait_for_timeout(300)
             if (await editor.inner_text()).strip() == expected:
                 return
@@ -635,6 +650,35 @@ _FIBER_INSERT_JS = """
   }
   return false;
 }
+"""
+
+_FIBER_INSERT_PARAGRAPHS_JS = r"""
+(el, text) => {
+  const key = Object.keys(el).find(
+    (name) => name.startsWith("__reactFiber$") || name.startsWith("__reactInternalInstance$")
+  );
+  let fiber = key ? el[key] : null;
+  for (let hops = 0; fiber && hops < 100; hops += 1, fiber = fiber.return) {
+    const editor = fiber.memoizedProps && fiber.memoizedProps.editor;
+    if (editor && ["start", "end", "select", "insertText", "insertBreak"]
+        .every((method) => typeof editor[method] === "function")) {
+      editor.select({ anchor: editor.start([]), focus: editor.end([]) });
+      const lines = text.split("\n");
+      lines.forEach((line, index) => {
+        if (index) editor.insertBreak();
+        if (line) editor.insertText(line);
+      });
+      return true;
+    }
+  }
+  return false;
+}
+"""
+
+_PARAGRAPH_TEXT_JS = r"""
+(el) => Array.from(el.children)
+  .map((paragraph) => paragraph.textContent.replace(/\ufeff/g, ""))
+  .join("\n")
 """
 
 _PUBLISH_NOW_CHECKED_JS = """

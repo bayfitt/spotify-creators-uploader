@@ -202,6 +202,30 @@ async def test_broken_description_never_publishes(page_factory, video_file: Path
     assert _published_events(fake) == []
 
 
+@pytest.mark.parametrize("line_end", ["\n", "\r\n"])
+async def test_multiline_description_survives_spotify_persistence(
+    page_factory, video_file: Path, line_end: str
+) -> None:
+    page, fake = await page_factory(FakeBehavior(description_mode="slate_multiline"))
+    lines = ["פתיחה בעברית", "", "Sources:", "https://example.org/one", "https://example.org/two"]
+    description = line_end.join(lines)
+
+    await _run(page, _request(video_file, description=description))
+
+    assert _published_events(fake)[0]["description"] == "\n".join(lines)
+
+
+async def test_multiline_description_without_paragraph_support_never_publishes(
+    page_factory, video_file: Path
+) -> None:
+    page, fake = await page_factory()
+    with pytest.raises(UploadError) as info:
+        await _run(page, _request(video_file, description="First line\nSecond line"))
+
+    assert info.value.step == "description"
+    assert _published_events(fake) == []
+
+
 async def test_explicit_switch_is_turned_on_when_requested(page_factory, video_file: Path) -> None:
     page, fake = await page_factory()
     await _run(page, _request(video_file, explicit=True))

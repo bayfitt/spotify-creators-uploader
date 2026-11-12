@@ -513,7 +513,7 @@ fileInput.addEventListener("change", function () {
   }, CONFIG.uploadDelayMs);
 });
 
-if (CONFIG.descriptionMode !== "normal") {
+if (CONFIG.descriptionMode !== "normal" && CONFIG.descriptionMode !== "slate_multiline") {
   editor.addEventListener("input", function () {
     clearTimeout(revertTimer);
     revertTimer = setTimeout(function () {
@@ -537,6 +537,25 @@ if (CONFIG.descriptionMode === "reverts" || CONFIG.descriptionMode === "fiber_on
     memoizedProps: {editor: fiberEditor},
     return: null,
   };
+}
+
+if (CONFIG.descriptionMode === "slate_multiline") {
+  let paragraph;
+  const fiberEditor = {
+    start: function () { return []; },
+    end: function () { return []; },
+    select: function () {
+      editor.replaceChildren();
+      paragraph = document.createElement("p");
+      editor.appendChild(paragraph);
+    },
+    insertText: function (text) { paragraph.appendChild(document.createTextNode(text)); },
+    insertBreak: function () {
+      paragraph = document.createElement("p");
+      editor.appendChild(paragraph);
+    },
+  };
+  editor["__reactFiber$test"] = {memoizedProps: {editor: fiberEditor}, return: null};
 }
 
 if (explicitToggle) {
@@ -576,7 +595,11 @@ publishButton.addEventListener("click", async function () {
   await report({
     type: "published",
     title: document.getElementById("title-input").value,
-    description: editor.innerText,
+    // Model Spotify's persistence: newlines inside one text node are lost,
+    // while distinct Slate paragraphs retain their boundaries.
+    description: CONFIG.descriptionMode === "slate_multiline"
+      ? Array.from(editor.children).map(p => p.textContent.replace(/\\n/g, "")).join("\\n")
+      : editor.innerText,
     explicit: explicitToggle ? explicitToggle.checked : null,
     filename: filename,
     episode_id: episodeId,
