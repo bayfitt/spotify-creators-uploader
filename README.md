@@ -1,5 +1,8 @@
 # spotify-creators-uploader
 
+This fork accepts MP3, M4A and WAV audio files in the upload validator. Audio uploads through
+the Spotify wizard have not yet been verified; the rest of the workflow remains video-focused.
+
 Publish one video podcast episode at a time to **Spotify for Creators** from the command line,
 headlessly, using a saved Playwright session created after a one-time human login. The same code is
 a typed Python library: it fills in the title, description, explicit-content setting and optional

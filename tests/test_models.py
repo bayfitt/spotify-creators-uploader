@@ -36,8 +36,22 @@ def _request(tmp_path: Path, **overrides) -> EpisodeRequest:
     return EpisodeRequest(**values)
 
 
-@pytest.mark.parametrize("name", ["video.mp4", "video.mov", "video.MP4", "video.MOV"])
-def test_valid_request_accepts_mp4_and_mov(tmp_path, name) -> None:
+@pytest.mark.parametrize(
+    "name",
+    [
+        "video.mp4",
+        "video.mov",
+        "video.MP4",
+        "video.MOV",
+        "episode.mp3",
+        "episode.m4a",
+        "episode.wav",
+        "episode.MP3",
+        "episode.M4A",
+        "episode.WAV",
+    ],
+)
+def test_valid_request_accepts_audio_and_video_formats(tmp_path, name) -> None:
     _request(tmp_path, video_path=_video(tmp_path, name)).validate()
 
 
@@ -46,9 +60,9 @@ def test_missing_video_is_rejected(tmp_path) -> None:
         _request(tmp_path, video_path=tmp_path / "missing.mp4").validate()
 
 
-@pytest.mark.parametrize("name", ["video.avi", "video.mkv", "video.txt", "video"])
+@pytest.mark.parametrize("name", ["video.avi", "video.mkv", "audio.ogg", "video.txt", "video"])
 def test_unsupported_suffix_is_rejected(tmp_path, name) -> None:
-    with pytest.raises(ValidationError, match="unsupported video type"):
+    with pytest.raises(ValidationError, match="unsupported media type"):
         _request(tmp_path, video_path=_video(tmp_path, name)).validate()
 
 
