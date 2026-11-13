@@ -53,6 +53,8 @@ _SIDE_NAV = 'nav[data-testid="sidenav"]'
 _SHOW_CARD = '[data-testid="sidenav-header-show-card"]'
 #: Extra time for the sidebar card after the page already looks like a dashboard.
 _CARD_WAIT_MS = 20_000.0
+#: The analytics shell can render before its setup/plays data.
+_SETUP_WAIT_MS = 8_000.0
 
 #: Every path that carries a show id, in the sidebar or in a "Your shows" list.
 _SHOW_LINK_RE = re.compile(
@@ -168,6 +170,13 @@ async def fetch_show_info(page: Page, show_id: str) -> ShowInfo:
         # name, so "the page looks like a dashboard" does not mean the name is there yet.
         await _wait_for_show_card(page)
         name, text = await _read_dashboard(page)
+    if _setup_state(text) is None:
+        # An analytics shell can appear before its all-time statistics. Wait briefly
+        # for a real setup signal; a missing signal remains unknown, not a pass.
+        await _wait_for_setup_signal(page)
+        later_name, later_text = await _read_dashboard(page)
+        name = later_name or name
+        text = later_text or text
     return await _leave(page, previous_url, ShowInfo(show_id, name, _setup_state(text)))
 
 
@@ -250,6 +259,17 @@ async def _wait_for_dashboard(page: Page) -> bool:
     except PlaywrightError:
         return False
     return True
+
+
+async def _wait_for_setup_signal(page: Page) -> None:
+    """Allow late dashboard data to load without inventing a setup state."""
+    with contextlib.suppress(PlaywrightError):
+        await page.wait_for_function(
+            """() => /Set up your show|Setup complete|all-time plays/.test(
+                document.body ? document.body.innerText : ''
+            )""",
+            timeout=min(_DASHBOARD_WAIT_MS, _SETUP_WAIT_MS),
+        )
 
 
 async def _wait_for_show_card(page: Page) -> None:

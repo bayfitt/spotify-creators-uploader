@@ -152,7 +152,10 @@ async def test_fetch_show_info_reads_a_complete_live_dashboard(page_factory: Any
 
 
 @browser
-async def test_fetch_show_info_leaves_an_unknown_setup_unknown(page_factory: Any) -> None:
+async def test_fetch_show_info_leaves_an_unknown_setup_unknown(
+    page_factory: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shows, "_SETUP_WAIT_MS", 100.0)
     page, _fake = await page_factory(FakeBehavior(dashboard=DashboardState(setup="mystery")))
 
     info = await shows.fetch_show_info(page, SHOW_ID)
@@ -184,6 +187,7 @@ async def test_fetch_show_info_recognizes_current_analytics_without_sidebar(
     page_factory: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(shows, "_DASHBOARD_WAIT_MS", 1000.0)
+    monkeypatch.setattr(shows, "_SETUP_WAIT_MS", 100.0)
     page, _fake = await page_factory()
     await _override_dashboard(page, (
         "<!doctype html><html><body>"
@@ -196,6 +200,27 @@ async def test_fetch_show_info_recognizes_current_analytics_without_sidebar(
     info = await shows.fetch_show_info(page, SHOW_ID)
 
     assert info == ShowInfo(SHOW_ID, "תוכנית לדוגמה", None)
+
+
+@browser
+async def test_fetch_show_info_waits_for_late_setup_data(
+    page_factory: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shows, "_DASHBOARD_WAIT_MS", 2000.0)
+    monkeypatch.setattr(shows, "_SETUP_WAIT_MS", 1500.0)
+    page, _fake = await page_factory()
+    await _override_dashboard(page, (
+        "<!doctype html><html><body>"
+        "<div style='font-size:48px'>Example Show</div>"
+        "<p>Plays &amp; downloads</p><p>Consumption time</p>"
+        "<script>setTimeout(() => { const p=document.createElement('p'); "
+        "p.textContent='10 all-time plays'; document.body.appendChild(p); }, 300)</script>"
+        "</body></html>"
+    ))
+
+    info = await shows.fetch_show_info(page, SHOW_ID)
+
+    assert info == ShowInfo(SHOW_ID, "Example Show", True)
 
 
 @browser
