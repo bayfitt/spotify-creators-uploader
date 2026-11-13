@@ -180,6 +180,25 @@ async def test_fetch_show_info_falls_back_to_the_heading(page_factory: Any) -> N
 
 
 @browser
+async def test_fetch_show_info_recognizes_current_analytics_without_sidebar(
+    page_factory: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shows, "_DASHBOARD_WAIT_MS", 1000.0)
+    page, _fake = await page_factory()
+    await _override_dashboard(page, (
+        "<!doctype html><html><body>"
+        "<div style='display:none'><h1>Tailored Advertising Opt-out</h1></div>"
+        "<div style='font-size:48px'>תוכנית לדוגמה</div>"
+        "<p>Plays &amp; downloads</p><p>Consumption time</p>"
+        "</body></html>"
+    ))
+
+    info = await shows.fetch_show_info(page, SHOW_ID)
+
+    assert info == ShowInfo(SHOW_ID, "תוכנית לדוגמה", None)
+
+
+@browser
 async def test_fetch_show_info_never_raises_for_an_unrecognised_page(
     page_factory: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

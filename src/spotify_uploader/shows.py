@@ -68,14 +68,22 @@ _DASHBOARD_READY_JS = """
   if (path.endsWith('/login') || path.endsWith('/login/')) return true;
   if (document.querySelector('[data-testid="sidenav-header-show-card"]')) return true;
   const text = document.body ? document.body.innerText : '';
-  return /Launch your show|Set up your show|Setup complete|all-time plays/.test(text);
+  if (/Launch your show|Set up your show|Setup complete|all-time plays/.test(text)) return true;
+  // Current analytics homes can omit the sidebar and all-time copy. Both metrics
+  // identify the rendered dashboard but do not by themselves prove setup status.
+  return /Plays & downloads/.test(text) && /Consumption time/.test(text);
 }
 """
 
 _READ_DASHBOARD_JS = """
 () => {
   const card = document.querySelector('[data-testid="sidenav-header-show-card"]');
-  const heading = document.querySelector('h1');
+  const heading = Array.from(document.querySelectorAll('h1')).find((el) => {
+    if (el.closest('nav, [role=dialog], #onetrust-consent-sdk')) return false;
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden';
+  });
   // Spotify's sidebar sometimes never starts (the page logs "reading 'TenantFeatures'"),
   // but the dashboard always opens with the show name as its first large title.
   let title = null;
